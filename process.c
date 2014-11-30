@@ -21,5 +21,7 @@ int process (CMD *cmdList)
     // SIMPLE
     if (cmdList->type == SIMPLE)
         printf("simple sawn\n");
+
+    return 0;
 }
 
