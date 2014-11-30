@@ -23,14 +23,15 @@
 void process (CMD *cmdList)
 {
     CMD *pcmd = cmdList;
-    int pid, status;
+    int pid, status;    // fork(), wait()
+    int fd[2];          // Read and write file descriptors for pipe()
 
     // SIMPLE
     if (pcmd->type == SIMPLE) {
         
 
         if ((pid = fork()) < 0)
-            errorExit("simple",EXIT_FAILURE);
+            errorExit("SIMPLE",EXIT_FAILURE);
 
         else if (pid == 0) {     // child
 
@@ -59,7 +60,8 @@ void process (CMD *cmdList)
                 close(out);
 
             }
-
+            
+            // Run command
             execvp(*(pcmd->argv), pcmd->argv);
             error_Exit(*(pcmd->argv),EXIT_FAILURE);
         }
@@ -68,6 +70,20 @@ void process (CMD *cmdList)
         }
     }
 
-    // 
+    // PIPE
+    else if (pcmd->type == PIPE) {
+        
+        if ((pid = fork()) < 0)
+            errorExit("PIPE",EXIT_FAILURE);
+
+        else if (pid == 0) {          // child
+
+            if (pipe(fd) == -1)
+                error_Exit("pipe",EXIT_FAILURE);
+
+
+
+
+    }
 
 }
