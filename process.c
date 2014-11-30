@@ -15,14 +15,31 @@
 #include <linux/limits.h>
 #include "/c/cs323/Hwk6/parse.h"
 
-// Execute command list CMDLIST and return status of last command executed
-int process (CMD *cmdList)
-{
-    // SIMPLE
-    if (cmdList->type == SIMPLE)
-        printf("simple sawn\n");
-    else if (cmdList->type == SEP_AND)
-        printf("argc = &d\n", cmdList->argc);
-    return 0;
-}
+// Print error message and die with STATUS
+#define errorExit(msg, status)  perror(msg), exit(status)
+#define error_Exit(msg, status)  perror(msg), _exit(status)
 
+// Execute command list CMDLIST and return status of last command executed
+void process (CMD *cmdList)
+{
+    CMD *pcmd = cmdList;
+    int pid, status;
+
+    // SIMPLE
+    if (pcmd->type == SIMPLE) {
+        
+        if ((pid = fork()) < 0)
+            errorExit("simple",EXIT_FAILURE);
+
+        else if (pid == 0) {     // child
+            execvp(*(pcmd->argv), pcmd->argv);
+            error_Exit(*(pcmd->argv),EXIT_FAILURE);
+        }
+        else {                   // parent
+            wait(&status);
+        }
+    }
+
+    // 
+
+}
