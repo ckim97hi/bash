@@ -1,0 +1,12 @@
+ESTIMATE of time to complete assignment: 20 hours
+      
+      Start  Time
+Date  Time   Spent  Work completed
+----  -----  ----   --------------
+
+10/7  12:00  0:40   fixed warnings w/ const char*
+                    passed all public tests
+                    style edits
+             ----
+             24:30       TOTAL time spent
+
