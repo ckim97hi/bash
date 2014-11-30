@@ -28,15 +28,43 @@ void process (CMD *cmdList)
     // SIMPLE
     if (pcmd->type == SIMPLE) {
         
+
         if ((pid = fork()) < 0)
             errorExit("simple",EXIT_FAILURE);
 
         else if (pid == 0) {     // child
+
+            // RED_IN
+            if (pcmd->fromType == RED_IN) {
+                int in = open(pcmd->fromFile, O_RDONLY);
+                if (in == -1) 
+                    error_Exit(pcmd->fromFile,EXIT_FAILURE);
+
+                dup2(in, 0);
+                close(in);
+            }
+            
+            // RED_OUT, RED_APP
+            if (pcmd->toType != NONE) {
+                int obits = O_CREAT | O_WRONLY;
+                if (pcmd->toType == RED_APP)
+                    obits = obits | O_APPEND;
+
+                int out = open(pcmd->toFile, obits, 664);
+
+                if (out == -1)
+                    error_Exit(pcmd->toFile,EXIT_FAILURE);
+
+                dup2(out, 1);
+                close(out);
+
+            }
+
             execvp(*(pcmd->argv), pcmd->argv);
             error_Exit(*(pcmd->argv),EXIT_FAILURE);
         }
         else {                   // parent
-            wait(&status);
+            wait(&status); // **************CHANGE TO WAITPID IF MORE THAN 1 CHILD POSSIBLE
         }
     }
 
