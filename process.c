@@ -50,7 +50,7 @@ void process (CMD *cmdList)
                 if (pcmd->toType == RED_APP)
                     obits = obits | O_APPEND;
 
-                int out = open(pcmd->toFile, obits, 664);
+                int out = open(pcmd->toFile, obits, 0644);
 
                 if (out == -1)
                     error_Exit(pcmd->toFile,EXIT_FAILURE);
