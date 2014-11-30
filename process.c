@@ -18,5 +18,8 @@
 // Execute command list CMDLIST and return status of last command executed
 int process (CMD *cmdList)
 {
+    // SIMPLE
+    if (cmdList->type == SIMPLE)
+        printf("simple sawn\n");
 }
 
