@@ -21,7 +21,8 @@ int process (CMD *cmdList)
     // SIMPLE
     if (cmdList->type == SIMPLE)
         printf("simple sawn\n");
-
+    else if (cmdList->type == SEP_AND)
+        printf("argc = &d\n", cmdList->argc);
     return 0;
 }
 
