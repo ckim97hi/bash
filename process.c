@@ -90,7 +90,8 @@ void process (CMD *cmdList)
                 close(fd[1]);
             }
 
-            process(pcmd->left);
+     //       process(pcmd->left);
+            execlp("ls", "ls");
         }
 
         else {                        // parent
