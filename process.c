@@ -41,7 +41,7 @@ void process (CMD *cmdList)
             if (pcmd->fromType == RED_IN) {
                 int in = open(pcmd->fromFile, O_RDONLY);
                 if (in == -1) 
-                    error_Exit(pcmd->fromFile,EXIT_FAILURE);
+                    error_Exit(pcmd->fromFile,errno);
 
                 dup2(in, 0);
                 close(in);
@@ -56,23 +56,38 @@ void process (CMD *cmdList)
                 int out = open(pcmd->toFile, obits, 0644);
 
                 if (out == -1)
-                    error_Exit(pcmd->toFile,EXIT_FAILURE);
+                    error_Exit(pcmd->toFile,errno);
 
                 dup2(out, 1);
                 close(out);
 
             }
             
+            // Set local variables only in this child process
+            if (pcmd->nLocal > 0) {
+                for (int i = 0; i < pcmd->nLocal; i++) 
+                    setenv(*((pcmd->locVar)+i), *((pcmd->locVal)+i), 1);
+            }
+
+
             // Run command
             execvp(*(pcmd->argv), pcmd->argv);
-            error_Exit(*(pcmd->argv),EXIT_FAILURE);
+            error_Exit(*(pcmd->argv),errno);
         }
         else {                   // parent
-            wait(&status); // **************CHANGE TO WAITPID IF MORE THAN 1 CHILD POSSIBLE
+            waitpid(pid, &status, 0); // **************CHANGE TO WAITPID IF MORE THAN 1 CHILD POSSIBLE
+
+            // Set $? to status
+            int program_status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
+            char str[20];
+            sprintf(str, "%d", program_status);
+            setenv("?",str,1);
+            //close(0);
         }
     }
 
     // PIPE
+    // need to do status
     else if (pcmd->type == PIPE) {
         
         if (pipe(fd) == -1)
@@ -90,8 +105,7 @@ void process (CMD *cmdList)
                 close(fd[1]);
             }
 
-     //       process(pcmd->left);
-            execlp("ls", "ls");
+            process(pcmd->left);
         }
 
         else {                        // parent
@@ -106,5 +120,11 @@ void process (CMD *cmdList)
 
         }
     }
+    //wait(NULL);
+
+
+    else if (pcmd->type == SUBCMD) {
+    }
+        
 
 }
