@@ -31,10 +31,10 @@ static int set_status (int status)
 // SIGCHLD handler
 // with help from 
 // http://www.microhowto.info/howto/reap_zombie_processes_using_a_sigchld_handler.html
-static void handle_sigchld(int sig) {
+static void handle_sigchld() {//int sig) {
     int status;
     pid_t pid;
-    while ((pid = waitpid((pid_t)(-1), &status, WNOHANG) > 0)) {
+    while ((pid = waitpid((pid_t)(-1), &status, WNOHANG)) > 0) {
         fprintf(stderr, "Completed: %d (%d)\n",pid, status);
     }
 }
@@ -50,15 +50,15 @@ static int execute (CMD *cmdList, int skip, int skip_status)
     int fd[2];          // Read and write file descriptors for pipe()
 
     // Reap terminated children
-    struct sigaction sa;
-    sa.sa_handler = &handle_sigchld;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-    if (sigaction(SIGCHLD, &sa, 0) == -1) {
-        errorExit("sigaction failed", errno);
-    }
+//    struct sigaction sa;
+//    sa.sa_handler = &handle_sigchld;
+//    sigemptyset(&sa.sa_mask);
+//    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+//    if (sigaction(SIGCHLD, &sa, 0) == -1) {
+//        errorExit("sigaction failed", errno);
+//    }
 
-
+    handle_sigchld();
 
     // SIMPLE
     if (pcmd->type == SIMPLE) {
@@ -108,15 +108,19 @@ static int execute (CMD *cmdList, int skip, int skip_status)
 
             else {
                 errno = 0;
-                while ((pid = waitpid((pid_t)(-1),NULL,0))) { // stay until children done
-                    if (errno == ECHILD)
+                while ((pid = waitpid((pid_t)(-1),&status,0))) { // stay until children done
+
+                    if (errno == ECHILD) // no children left 
                         break;
+                    else 
+                        fprintf(stderr, "Completed: %d (%d)\n",pid, status);
+                    
                 }
                 return set_status(0);
             }
         }
 
-        // Other commands (dirs, external)
+        // Other commands (**********dirs*******, external)
         else {
             if ((pid = fork()) < 0)
                 errorExit("SIMPLE: fork failed",errno);
