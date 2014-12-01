@@ -19,24 +19,26 @@
 #define errorExit(msg, status)  perror(msg), exit(status)
 #define error_Exit(msg, status)  perror(msg), _exit(status)
 
-// Set $? to "STATUS"
-static void set_status (int status)
+// Set $? to "STATUS" and return STATUS
+static int set_status (int status)
 {
     char str[20];
     sprintf(str, "%d", status);
     setenv("?",str,1);
+    return status;
 }
 
 // Execute command list CMDLIST and return status of last command executed
-void process (CMD *cmdList)
+// Return status of process
+int process (CMD *cmdList)
 {
     CMD *pcmd = cmdList;
     int pid, status;    // fork(), wait()
     int fd[2];          // Read and write file descriptors for pipe()
 
+    // Reap terminated children
+
     // SIMPLE
-    //
-    // SET VARIABLE********************
     if (pcmd->type == SIMPLE) {
         
         // cd
@@ -44,8 +46,7 @@ void process (CMD *cmdList)
             
             if (pcmd->argc > 2) {
                 fprintf(stderr, "usage: cd  OR  cd <directory-name>\n");
-                set_status(1);
-                return;
+                return set_status(1);
             }
 
             else {
@@ -56,8 +57,7 @@ void process (CMD *cmdList)
                     dir = getenv("HOME");
                     if (dir == NULL) {
                         fprintf(stderr, "cd: $HOME variable not set\n");
-                        set_status(1);
-                        return;
+                        return set_status(1);
                     }
                 }
                 else if (pcmd->argc == 2)
@@ -65,13 +65,14 @@ void process (CMD *cmdList)
 
                 if (chdir(dir) == -1) {
                     perror("cd: chdir failed");
-                    set_status(errno);
+                    return set_status(errno);
                 }
                 else // success
-                    set_status(0);
+                    return set_status(0);
 
-                return;
             }
+
+      
         }
         
         // wait *************STILL NEED TO WRITE "COMPLETED:" etc
@@ -80,8 +81,7 @@ void process (CMD *cmdList)
 
             if (pcmd->argc > 1) {
                 fprintf(stderr, "usage: wait\n");
-                set_status(1);
-                return;
+                return set_status(1);
             }
 
             else {
@@ -90,13 +90,14 @@ void process (CMD *cmdList)
                     if (errno == ECHILD)
                         break;
                 }
+                return set_status(0);
             }
         }
 
         // Other commands (dirs, external)
         else {
             if ((pid = fork()) < 0)
-                errorExit("SIMPLE",errno);
+                errorExit("SIMPLE: fork failed",errno);
 
             else if (pid == 0) {     // child
                 
@@ -144,7 +145,7 @@ void process (CMD *cmdList)
 
                 // Set $? to status
                 int program_status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
-                set_status(program_status);
+                return set_status(program_status);
                 //close(0);
             }
         }
@@ -155,10 +156,10 @@ void process (CMD *cmdList)
     else if (pcmd->type == PIPE) {
         
         if (pipe(fd) == -1)
-            errorExit("pipe",EXIT_FAILURE); // CHANGE TO STATUS
+            errorExit("PIPE: pipe failed",EXIT_FAILURE); // CHANGE TO STATUS
 
         if ((pid = fork()) < 0)
-            errorExit("PIPE",EXIT_FAILURE);
+            errorExit("PIPE: fork failed",EXIT_FAILURE);
 
         else if (pid == 0) {          // child
         
@@ -186,12 +187,46 @@ void process (CMD *cmdList)
     }
     //wait(NULL);
 
-
+    // Subcommands
+    // may have local variables
     else if (pcmd->type == SUBCMD) {
+
     }
+
+    else if (pcmd->type == SEP_AND) {
+    }
+
+    else if (pcmd->type == SEP_OR) {
+    }
+
+    else if (pcmd->type == SEP_END) {
+    }
+    
+    // Backgrounded commands
+    else if (pcmd->type == SEP_BG) {
+
+        if ((pid = fork()) < 0)
+            errorExit("SEP_BG: fork failed",errno);
+        else if (pid == 0) { // child executes left subtree
+            _exit(process(pcmd->left)); 
+        }
+
+        else { // parent continues 
+               //  (e.g., executing right subtree or return to main)
+               // Return status of right subtree or 0 if nonexistent
+            set_status(0);
+            if (pcmd->right != NULL)
+                return process(pcmd->right);
+
+            return 0;
+
+
+        }
+    }
+
 
     // IF YOU PUT ANYTHING OUTSIDE THESE CONDITIONALS
     // MAKE SURE RETURN STATEMENTS ARE EVERYWHERE NECESSARY
-        
+    return 0;    
 
 }
