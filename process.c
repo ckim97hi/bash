@@ -31,7 +31,7 @@ static int set_status (int status)
 // SIGCHLD handler
 // with help from 
 // http://www.microhowto.info/howto/reap_zombie_processes_using_a_sigchld_handler.html
-void handle_sigchld(int sig) {
+static void handle_sigchld(int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid((pid_t)(-1), &status, WNOHANG) > 0)) {
@@ -40,7 +40,9 @@ void handle_sigchld(int sig) {
 }
 // Execute command list CMDLIST and return status of last command executed
 // Return status of process
-int process (CMD *cmdList)
+// SKIP is true if instructed to skip current cmd (left subtree if not SIMPLE),
+// whose status is SKIP_STATUS
+static int execute (CMD *cmdList, int skip, int skip_status)
 {
     CMD *pcmd = cmdList;
     pid_t pid;     // fork()
@@ -190,7 +192,7 @@ int process (CMD *cmdList)
                 close(fd[1]);
             }
 
-            process(pcmd->left);
+            execute(pcmd->left,0,0);
         }
 
         else {                        // parent
@@ -201,7 +203,7 @@ int process (CMD *cmdList)
             }
 
             close(fd[1]);             // no writing to new pipe
-            process(pcmd->right);
+            execute(pcmd->right,0,0);
 
         }
     }
@@ -212,14 +214,46 @@ int process (CMD *cmdList)
     else if (pcmd->type == SUBCMD) {
 
     }
+    
+    // &&, ||
+    // Return status of last command
+    else if (pcmd->type == SEP_AND || pcmd->type == SEP_OR) {
+        
+        int left_status = (skip ? skip_status : execute(pcmd->left,0,0));
+        int skip_next; // skip next command?
 
-    else if (pcmd->type == SEP_AND) {
+        if (pcmd->type == SEP_AND)
+            skip_next = (left_status != 0 ? 1 : 0);
+        else if (pcmd->type == SEP_OR)
+            skip_next = (left_status == 0 ? 1 : 0);
+
+        if (skip_next) { 
+            // === SKIP === 
+            // If right subtree is SIMPLE or PIPE or SUBCMD, done
+            // Otherwise, execute right subtree with SKIP==TRUE 
+            CMD *right_child = pcmd->right;
+            if (right_child->type == SIMPLE ||
+                right_child->type == PIPE   ||
+                right_child->type == SUBCMD) {
+
+                return left_status; // last cmd = skipped cmd
+            }
+            else
+                return execute(right_child,1,left_status);
+        }
+        else 
+            return execute(pcmd->right,0,0);
     }
 
-    else if (pcmd->type == SEP_OR) {
-    }
-
+    // ;
+    // Return status of command following ; if exists, or left cmd otherwise
     else if (pcmd->type == SEP_END) {
+
+        int last_status = execute(pcmd->left,0,0);
+        if (pcmd->right != NULL)   // execute right subtree if exists
+            last_status = execute(pcmd->right,0,0);
+
+        return last_status;
     }
     
     // Backgrounded commands
@@ -228,7 +262,7 @@ int process (CMD *cmdList)
         if ((pid = fork()) < 0)
             errorExit("SEP_BG: fork failed",errno);
         else if (pid == 0) { // child executes left subtree
-            _exit(process(pcmd->left)); 
+            _exit(execute(pcmd->left,0,0)); 
         }
 
         else { // parent continues 
@@ -237,7 +271,7 @@ int process (CMD *cmdList)
             fprintf(stderr, "Backgrounded: %d\n", pid);
             set_status(0);
             if (pcmd->right != NULL)
-                return process(pcmd->right);
+                return execute(pcmd->right,0,0);
 
             return 0;
 
@@ -248,6 +282,11 @@ int process (CMD *cmdList)
 
     // IF YOU PUT ANYTHING OUTSIDE THESE CONDITIONALS
     // MAKE SURE RETURN STATEMENTS ARE EVERYWHERE NECESSARY
-    return 0;    
+    return EXIT_SUCCESS;    
 
+}
+
+void process (CMD *cmdList) 
+{
+    execute(cmdList,0,0);
 }
