@@ -27,6 +27,8 @@ void process (CMD *cmdList)
     int fd[2];          // Read and write file descriptors for pipe()
 
     // SIMPLE
+    //
+    // SET VARIABLE********************
     if (pcmd->type == SIMPLE) {
         
 
@@ -34,7 +36,7 @@ void process (CMD *cmdList)
             errorExit("SIMPLE",EXIT_FAILURE);
 
         else if (pid == 0) {     // child
-
+            
             // RED_IN
             if (pcmd->fromType == RED_IN) {
                 int in = open(pcmd->fromFile, O_RDONLY);
@@ -73,17 +75,35 @@ void process (CMD *cmdList)
     // PIPE
     else if (pcmd->type == PIPE) {
         
+        if (pipe(fd) == -1)
+            errorExit("pipe",EXIT_FAILURE);
+
         if ((pid = fork()) < 0)
             errorExit("PIPE",EXIT_FAILURE);
 
         else if (pid == 0) {          // child
+        
+            close(fd[0]);      // no reading from new pipe
 
-            if (pipe(fd) == -1)
-                error_Exit("pipe",EXIT_FAILURE);
+            if (fd[1] != 1) {
+                dup2(fd[1],1); // left <stage> write to buffer
+                close(fd[1]);
+            }
 
+            process(pcmd->left);
+        }
 
+        else {                        // parent
 
+            if (fd[0] != 0) {         // read from new pipe
+                dup2(fd[0],0);
+                close(fd[0]);
+            }
 
+            close(fd[1]);             // no writing to new pipe
+            process(pcmd->right);
+
+        }
     }
 
 }
