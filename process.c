@@ -28,15 +28,35 @@ static int set_status (int status)
     return status;
 }
 
+// SIGCHLD handler
+// with help from 
+// http://www.microhowto.info/howto/reap_zombie_processes_using_a_sigchld_handler.html
+void handle_sigchld(int sig) {
+    int status;
+    pid_t pid;
+    while ((pid = waitpid((pid_t)(-1), &status, WNOHANG) > 0)) {
+        fprintf(stderr, "Completed: %d (%d)\n",pid, status);
+    }
+}
 // Execute command list CMDLIST and return status of last command executed
 // Return status of process
 int process (CMD *cmdList)
 {
     CMD *pcmd = cmdList;
-    int pid, status;    // fork(), wait()
+    pid_t pid;     // fork()
+    int status;    // wait()
     int fd[2];          // Read and write file descriptors for pipe()
 
     // Reap terminated children
+    struct sigaction sa;
+    sa.sa_handler = &handle_sigchld;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    if (sigaction(SIGCHLD, &sa, 0) == -1) {
+        errorExit("sigaction failed", errno);
+    }
+
+
 
     // SIMPLE
     if (pcmd->type == SIMPLE) {
@@ -86,7 +106,7 @@ int process (CMD *cmdList)
 
             else {
                 errno = 0;
-                while ((pid = waitpid(-1,NULL,0))) { // stay until children done
+                while ((pid = waitpid((pid_t)(-1),NULL,0))) { // stay until children done
                     if (errno == ECHILD)
                         break;
                 }
@@ -214,6 +234,7 @@ int process (CMD *cmdList)
         else { // parent continues 
                //  (e.g., executing right subtree or return to main)
                // Return status of right subtree or 0 if nonexistent
+            fprintf(stderr, "Backgrounded: %d\n", pid);
             set_status(0);
             if (pcmd->right != NULL)
                 return process(pcmd->right);
