@@ -19,6 +19,14 @@
 #define errorExit(msg, status)  perror(msg), exit(status)
 #define error_Exit(msg, status)  perror(msg), _exit(status)
 
+// Set $? to "STATUS"
+static void set_status (int status)
+{
+    char str[20];
+    sprintf(str, "%d", status);
+    setenv("?",str,1);
+}
+
 // Execute command list CMDLIST and return status of last command executed
 void process (CMD *cmdList)
 {
@@ -36,7 +44,7 @@ void process (CMD *cmdList)
             
             if (pcmd->argc > 2) {
                 fprintf(stderr, "usage: cd  OR  cd <directory-name>\n");
-                setenv("?","1",1);
+                set_status(1);
                 return;
             }
 
@@ -48,7 +56,7 @@ void process (CMD *cmdList)
                     dir = getenv("HOME");
                     if (dir == NULL) {
                         fprintf(stderr, "cd: $HOME variable not set\n");
-                        setenv("?","1",1);
+                        set_status(1);
                         return;
                     }
                 }
@@ -57,16 +65,33 @@ void process (CMD *cmdList)
 
                 if (chdir(dir) == -1) {
                     perror("cd: chdir failed");
-                    char str[20];
-                    sprintf(str, "%d", errno);
-                    setenv("?",str,1);
+                    set_status(errno);
                 }
+                else // success
+                    set_status(0);
+
                 return;
             }
         }
         
-        // wait
-//        else if (strcmp(*(pcmd->argv),"
+        // wait *************STILL NEED TO WRITE "COMPLETED:" etc
+        // TEST LATER
+        else if (strcmp(*(pcmd->argv),"wait") == 0) {
+
+            if (pcmd->argc > 1) {
+                fprintf(stderr, "usage: wait\n");
+                set_status(1);
+                return;
+            }
+
+            else {
+                errno = 0;
+                while ((pid = waitpid(-1,NULL,0))) { // stay until children done
+                    if (errno == ECHILD)
+                        break;
+                }
+            }
+        }
 
         // Other commands (dirs, external)
         else {
@@ -119,9 +144,7 @@ void process (CMD *cmdList)
 
                 // Set $? to status
                 int program_status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
-                char str[20];
-                sprintf(str, "%d", program_status);
-                setenv("?",str,1);
+                set_status(program_status);
                 //close(0);
             }
         }
