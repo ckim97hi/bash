@@ -28,16 +28,57 @@ static int set_status (int status)
     return status;
 }
 
-// SIGCHLD handler
-// with help from 
-// http://www.microhowto.info/howto/reap_zombie_processes_using_a_sigchld_handler.html
-static void handle_sigchld() {//int sig) {
+// Reap zombie processes
+static void reap_zombies() {//int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid((pid_t)(-1), &status, WNOHANG)) > 0) {
         fprintf(stderr, "Completed: %d (%d)\n",pid, status);
     }
 }
+
+
+
+// Set local variables and redirections
+static void vars_redir(CMD *pcmd)
+{
+    // RED_IN
+    if (pcmd->fromType == RED_IN) {
+        int in = open(pcmd->fromFile, O_RDONLY);
+        if (in == -1) 
+            error_Exit(pcmd->fromFile,errno);
+
+        dup2(in, 0);
+        close(in);
+    }
+    
+    // RED_OUT, RED_APP
+    if (pcmd->toType != NONE) {
+        int obits = O_CREAT | O_WRONLY;
+        if (pcmd->toType == RED_APP)
+            obits = obits | O_APPEND;
+        else if (pcmd->toType == RED_OUT)
+            obits = obits | O_TRUNC;
+        
+        int out = open(pcmd->toFile, obits, 0644);
+
+        if (out == -1)
+            error_Exit(pcmd->toFile,errno);
+
+        dup2(out, 1);
+        close(out);
+
+    }
+    
+    // Set local variables only in this child process
+    if (pcmd->nLocal > 0) {
+        for (int i = 0; i < pcmd->nLocal; i++) 
+            setenv(*((pcmd->locVar)+i), *((pcmd->locVal)+i), 1);
+    }
+}
+
+
+
 // Execute command list CMDLIST and return status of last command executed
 // Return status of process
 // SKIP is true if instructed to skip current cmd (left subtree if not SIMPLE),
@@ -49,16 +90,12 @@ static int execute (CMD *cmdList, int skip, int skip_status)
     int status;    // wait()
     int fd[2];          // Read and write file descriptors for pipe()
 
+    // ******************* HANDLE SIGINT********************
+    //
+    //
+    //
     // Reap terminated children
-//    struct sigaction sa;
-//    sa.sa_handler = &handle_sigchld;
-//    sigemptyset(&sa.sa_mask);
-//    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-//    if (sigaction(SIGCHLD, &sa, 0) == -1) {
-//        errorExit("sigaction failed", errno);
-//    }
-
-    handle_sigchld();
+    reap_zombies();
 
     // SIMPLE
     if (pcmd->type == SIMPLE) {
@@ -126,43 +163,11 @@ static int execute (CMD *cmdList, int skip, int skip_status)
 
             else if (pid == 0) {     // child
                 
-                // RED_IN
-                if (pcmd->fromType == RED_IN) {
-                    int in = open(pcmd->fromFile, O_RDONLY);
-                    if (in == -1) 
-                        error_Exit(pcmd->fromFile,errno);
-
-                    dup2(in, 0);
-                    close(in);
-                }
-                
-                // RED_OUT, RED_APP
-                if (pcmd->toType != NONE) {
-                    int obits = O_CREAT | O_WRONLY;
-                    if (pcmd->toType == RED_APP)
-                        obits = obits | O_APPEND;
-                    else if (pcmd->toType == RED_OUT)
-                        obits = obits | O_TRUNC;
-                    
-                    int out = open(pcmd->toFile, obits, 0644);
-
-                    if (out == -1)
-                        error_Exit(pcmd->toFile,errno);
-
-                    dup2(out, 1);
-                    close(out);
-
-                }
-                
-                // Set local variables only in this child process
-                if (pcmd->nLocal > 0) {
-                    for (int i = 0; i < pcmd->nLocal; i++) 
-                        setenv(*((pcmd->locVar)+i), *((pcmd->locVal)+i), 1);
-                }
+                // local variables and redirection
+                vars_redir(pcmd);
 
 
                 // Built-in command? (dirs)
-                
                 if (strcmp(*(pcmd->argv),"dirs") == 0) {
                     
                     if (pcmd->argc > 1) {
@@ -244,12 +249,10 @@ static int execute (CMD *cmdList, int skip, int skip_status)
         if ((pid = fork()) < 0)
             errorExit("SUBCMD: fork failed",errno);
         else if (pid == 0) { // child executes left subtree
+            
+            // local variables and redirection
+            vars_redir(pcmd);
 
-            // local variables
-            if (pcmd->nLocal > 0) {
-                for (int i = 0; i < pcmd->nLocal; i++) 
-                    setenv(*((pcmd->locVar)+i), *((pcmd->locVal)+i), 1);
-            }
 
             _exit(execute(pcmd->left,0,0)); 
         }

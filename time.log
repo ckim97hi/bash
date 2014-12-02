@@ -13,7 +13,8 @@ Date   Time   Spent  Work completed
 12/01  15:00  2:00   Reaping zombies, ;, ||, &&
 12/01  17:00  1:00   Reaping bug (assignment in conditional)
 12/01  19:00  1:00   fflush bug (dirs), redirect bug (O_TRUNC)
-12/01  20:00  0:30   subcommands
+12/01  20:00  0:30   subcommands (redirection, local variables)
+12/01  20:30  0:30   refactoring local vars, redirection
 
               ----
                           TOTAL time spent
