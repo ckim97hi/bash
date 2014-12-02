@@ -15,7 +15,23 @@ Date   Time   Spent  Work completed
 12/01  19:00  1:00   fflush bug (dirs), redirect bug (O_TRUNC)
 12/01  20:00  0:30   subcommands (redirection, local variables)
 12/01  20:30  0:30   refactoring local vars, redirection
+12/01  21:00  1:00   piping
+12/01  22:00  1:00   piping: wait for each stage
+12/01  23:00  1:00   Bug: didn't use WEXITSTATUS consistently
+12/02  00:00  1:00   Signal handling, tidying code
 
               ----
-                          TOTAL time spent
+              16:30       TOTAL time spent
+
+The toughness of this assignment came from the novelty
+of thinking about multiple processes simultaneously, particularly
+for pipelines. It took a while to figure out that in
+a case like "$ yes | head", closing the pipe sends a signal
+to the process running yes. Bugs were also difficult to 
+track because of the multiple processes; in particular, 
+in focusing on keeping track of processes during 
+debugging, it took a while to realize that I was not
+using the WEXITSTATUS macro consistently (using the
+status given by waitpid() directly instead). It also was
+confusing how stdout is buffered if not sent to the terminal.
 

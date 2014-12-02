@@ -1,6 +1,7 @@
 // process.c                                      Daniel Kim (11/29/14)
 //
-// Backend for Bsh.  See spec for details.
+// Backend for Bash, a simple shell with few build-in commands,
+// local variables, redirection, backgrounded commands.
 
 #define _GNU_SOURCE
 #include <stdlib.h>
@@ -16,8 +17,9 @@
 #include "/c/cs323/Hwk6/parse.h"
 
 // Print error message and die with STATUS
-#define errorExit(msg, status)  perror(msg), exit(status)
 #define error_Exit(msg, status)  perror(msg), _exit(status)
+
+
 
 // Set $? to "STATUS" and return STATUS
 static int set_status (int status)
@@ -25,14 +27,18 @@ static int set_status (int status)
     char str[20];
     sprintf(str, "%d", status);
     setenv("?",str,1);
+
     return status;
 }
+
 
 // Reap zombie processes
 static void reap_zombies() {//int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid((pid_t)(-1), &status, WNOHANG)) > 0) {
+
+        status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
         fprintf(stderr, "Completed: %d (%d)\n",pid, status);
     }
 }
@@ -79,6 +85,8 @@ static void vars_redir(CMD *pcmd)
 
 
 
+
+
 // Execute command list CMDLIST and return status of last command executed
 // Return status of process
 // SKIP is true if instructed to skip current cmd (left subtree if not SIMPLE),
@@ -88,14 +96,16 @@ static int execute (CMD *cmdList, int skip, int skip_status)
     CMD *pcmd = cmdList;
     pid_t pid;     // fork()
     int status;    // wait()
-    int fd[2];          // Read and write file descriptors for pipe()
+    int fd[2];     // Read and write file descriptors for pipe()
+   
 
-    // ******************* HANDLE SIGINT********************
-    //
-    //
-    //
+    // Restore default signal handling
+    signal(SIGINT,SIG_DFL);
+
+
     // Reap terminated children
     reap_zombies();
+    
 
     // SIMPLE
     if (pcmd->type == SIMPLE) {
@@ -144,25 +154,38 @@ static int execute (CMD *cmdList, int skip, int skip_status)
 
             else {
                 errno = 0;
+
+                // Ignore SIGINT while waiting
+                signal(SIGINT,SIG_IGN);
+
                 while ((pid = waitpid((pid_t)(-1),&status,0))) { // stay until children done
 
                     if (errno == ECHILD) // no children left 
                         break;
-                    else 
+                    else  {
+                        status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
                         fprintf(stderr, "Completed: %d (%d)\n",pid, status);
+                    }
                     
                 }
+                signal(SIGINT,SIG_DFL);
                 return set_status(0);
             }
         }
 
-        // Other commands (**********dirs*******, external)
+
+
+
+        // Other commands (dirs, external)
         else {
-            if ((pid = fork()) < 0)
-                errorExit("SIMPLE: fork failed",errno);
+            if ((pid = fork()) < 0) {
+                perror("SIMPLE: fork failed");
+                return set_status(errno);
+            }
 
             else if (pid == 0) {     // child
                 
+
                 // local variables and redirection
                 vars_redir(pcmd);
 
@@ -196,58 +219,136 @@ static int execute (CMD *cmdList, int skip, int skip_status)
                 error_Exit(*(pcmd->argv),errno);
             }
             else {                   // parent
+                
+                // wait and ignore SIGINT
+                signal(SIGINT,SIG_IGN);
                 waitpid(pid, &status, 0); 
+
+
+                signal(SIGINT,SIG_DFL);
 
                 // Set $? to status
                 int program_status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
+
                 return set_status(program_status);
-                //close(0);
             }
         }
     }
-    
+   
+
+
     // PIPE
-    // need to do status
     else if (pcmd->type == PIPE) {
         
-        if (pipe(fd) == -1)
-            errorExit("PIPE: pipe failed",EXIT_FAILURE); // CHANGE TO STATUS
 
-        if ((pid = fork()) < 0)
-            errorExit("PIPE: fork failed",EXIT_FAILURE);
-
-        else if (pid == 0) {          // child
-        
-            close(fd[0]);      // no reading from new pipe
-
-            if (fd[1] != 1) {
-                dup2(fd[1],1); // left <stage> write to buffer
-                close(fd[1]);
-            }
-
-            execute(pcmd->left,0,0);
+        if ((pid = fork()) < 0) {
+            perror("PIPE: fork failed");
+            return set_status(errno);
         }
 
-        else {                        // parent
+        // ==== CHILD ====
+        // execute left subtree
+        // spawn grandchild to recursve right subtree
 
-            if (fd[0] != 0) {         // read from new pipe
-                dup2(fd[0],0);
-                close(fd[0]);
+        else if (pid == 0) {          
+            
+
+            // Pipe buffer
+            if (pipe(fd) == -1)
+                error_Exit("PIPE: pipe failed",errno); 
+            
+            
+            if ((pid = fork()) < 0) {
+                error_Exit("PIPE: fork failed",errno);
             }
+            
+            // ==== GRANDCHILD ====
+            // execute right subtree
+            // close pipe when complete
+            // exit
+            else if (pid == 0) {
+                
+                // read from pipe
+                if (fd[0] != 0) {
+                    dup2(fd[0],0);
+                    close(fd[0]);
+                }
+                // no writing to pipe
+                close(fd[1]);
+                
+                // drag status from end of pipeline
+                int right_status = execute(pcmd->right,0,0);
 
-            close(fd[1]);             // no writing to new pipe
-            execute(pcmd->right,0,0);
+                // Close pipe
+                close(0);
+                
+                _exit(set_status(right_status));
 
+            }
+            
+            // ====================
+
+
+            // ==== CHILD ====
+            else {
+                
+                // write to pipe
+                if (fd[1] != 1) {
+                    dup2(fd[1],1);
+                    close(fd[1]);
+                }
+                // no reading from pipe
+                close(fd[0]);
+                
+                // execute left subtree
+                int left_status = execute(pcmd->left,0,0);
+                
+
+                // Close pipe
+                close(1);
+
+                
+                // Wait for rest of pipe
+                waitpid(pid, &status, 0);
+                status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
+
+
+                // set STATUS to rightmost failure, or 0
+                if (status != 0)
+                    ;
+                else if (left_status != 0)
+                    status = left_status;
+
+
+                _exit(set_status(status));
+            }
+        }
+        
+        // ==== PARENT ====
+        // wait for child (and grandchild, and so on)
+        // set status of PIPE and continue
+        else {                        
+
+            signal(SIGINT,SIG_IGN);
+            waitpid(pid, &status, 0); 
+
+            signal(SIGINT,SIG_DFL);
+
+            status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
+            return set_status(status);
         }
     }
-    //wait(NULL);
+
+
 
     // Subcommands
-    // may have local variables
     else if (pcmd->type == SUBCMD) {
 
-        if ((pid = fork()) < 0)
-            errorExit("SUBCMD: fork failed",errno);
+        if ((pid = fork()) < 0) {
+            perror("SUBCMD: fork failed");
+            return set_status(errno);
+        }
+
         else if (pid == 0) { // child executes left subtree
             
             // local variables and redirection
@@ -259,13 +360,20 @@ static int execute (CMD *cmdList, int skip, int skip_status)
 
         else { // parent waits for child to terminate
 
+            signal(SIGINT,SIG_IGN);
             waitpid(pid, &status, 0); 
+            
+            signal(SIGINT,SIG_DFL);
+
+            status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
             return set_status(status);
         }
         
 
     }
-    
+   
+
+
     // &&, ||
     // Return status of last command
     else if (pcmd->type == SEP_AND || pcmd->type == SEP_OR) {
@@ -278,10 +386,14 @@ static int execute (CMD *cmdList, int skip, int skip_status)
         else if (pcmd->type == SEP_OR)
             skip_next = (left_status == 0 ? 1 : 0);
 
+
+
         if (skip_next) { 
+
             // === SKIP === 
             // If right subtree is SIMPLE or PIPE or SUBCMD, done
             // Otherwise, execute right subtree with SKIP==TRUE 
+
             CMD *right_child = pcmd->right;
             if (right_child->type == SIMPLE ||
                 right_child->type == PIPE   ||
@@ -289,9 +401,12 @@ static int execute (CMD *cmdList, int skip, int skip_status)
 
                 return left_status; // last cmd = skipped cmd
             }
+
             else
                 return execute(right_child,1,left_status);
         }
+
+
         else 
             return execute(pcmd->right,0,0);
     }
@@ -310,8 +425,11 @@ static int execute (CMD *cmdList, int skip, int skip_status)
     // Backgrounded commands
     else if (pcmd->type == SEP_BG) {
 
-        if ((pid = fork()) < 0)
-            errorExit("SEP_BG: fork failed",errno);
+        if ((pid = fork()) < 0) {
+            perror("SEP_BG: fork failed");
+            return set_status(errno);
+        }
+
         else if (pid == 0) { // child executes left subtree
             _exit(execute(pcmd->left,0,0)); 
         }
@@ -330,11 +448,8 @@ static int execute (CMD *cmdList, int skip, int skip_status)
         }
     }
 
-
-    // IF YOU PUT ANYTHING OUTSIDE THESE CONDITIONALS
-    // MAKE SURE RETURN STATEMENTS ARE EVERYWHERE NECESSARY
-    return EXIT_SUCCESS;    
-
+    else
+        return EXIT_SUCCESS;
 }
 
 void process (CMD *cmdList) 
