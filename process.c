@@ -97,8 +97,7 @@ static int execute (CMD *cmdList, int skip, int skip_status)
       
         }
         
-        // wait *************STILL NEED TO WRITE "COMPLETED:" etc
-        // TEST LATER
+        // wait 
         else if (strcmp(*(pcmd->argv),"wait") == 0) {
 
             if (pcmd->argc > 1) {
@@ -142,7 +141,9 @@ static int execute (CMD *cmdList, int skip, int skip_status)
                     int obits = O_CREAT | O_WRONLY;
                     if (pcmd->toType == RED_APP)
                         obits = obits | O_APPEND;
-
+                    else if (pcmd->toType == RED_OUT)
+                        obits = obits | O_TRUNC;
+                    
                     int out = open(pcmd->toFile, obits, 0644);
 
                     if (out == -1)
@@ -161,13 +162,36 @@ static int execute (CMD *cmdList, int skip, int skip_status)
 
 
                 // Built-in command? (dirs)
+                
+                if (strcmp(*(pcmd->argv),"dirs") == 0) {
+                    
+                    if (pcmd->argc > 1) {
+                        fprintf(stderr, "usage: dirs\n");
+                        _exit(set_status(1));
+                    }
+
+                    else {
+                        char *cwd = getcwd(NULL,0);
+                        if (cwd == NULL) {
+                            perror("dirs: getcwd failed");
+                            _exit(set_status(errno));
+                        }
+                        else {
+                            printf("%s\n",cwd);
+                            fflush(stdout);
+                            _exit(set_status(0));
+
+                        }
+                    }
+                }
+
 
                 // Run external command
                 execvp(*(pcmd->argv), pcmd->argv);
                 error_Exit(*(pcmd->argv),errno);
             }
             else {                   // parent
-                waitpid(pid, &status, 0); // **************CHANGE TO WAITPID IF MORE THAN 1 CHILD POSSIBLE
+                waitpid(pid, &status, 0); 
 
                 // Set $? to status
                 int program_status = (WIFEXITED(status) ? WEXITSTATUS(status) : 128+WTERMSIG(status));
@@ -216,6 +240,26 @@ static int execute (CMD *cmdList, int skip, int skip_status)
     // Subcommands
     // may have local variables
     else if (pcmd->type == SUBCMD) {
+
+        if ((pid = fork()) < 0)
+            errorExit("SUBCMD: fork failed",errno);
+        else if (pid == 0) { // child executes left subtree
+
+            // local variables
+            if (pcmd->nLocal > 0) {
+                for (int i = 0; i < pcmd->nLocal; i++) 
+                    setenv(*((pcmd->locVar)+i), *((pcmd->locVal)+i), 1);
+            }
+
+            _exit(execute(pcmd->left,0,0)); 
+        }
+
+        else { // parent waits for child to terminate
+
+            waitpid(pid, &status, 0); 
+            return set_status(status);
+        }
+        
 
     }
     
